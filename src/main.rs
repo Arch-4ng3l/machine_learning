@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use rand::random;
+use rand::distributions::{Distribution, Uniform};
 
 
 #[derive(Clone)]
@@ -15,12 +15,16 @@ impl Matrix {
             shape: [shape[0], shape[1]]
         };
     }
+
     fn random(shape: &[usize]) -> Self {
         let mut vec = Vec::new();
+        let sampler= Uniform::new(-0.5, 0.5);
+        let mut rng = rand::thread_rng();
+
         for _ in 0..shape[0] {
             let mut v: Vec<f32> = Vec::new();
             for _ in 0..shape[1] {
-                v.push(random());
+                v.push(sampler.sample(&mut rng));
             }
             vec.push(v);
         }
@@ -39,12 +43,14 @@ impl Matrix {
         }
         return matrix;
     }
+
     fn from(arr: Vec<Vec<f32>>) -> Self{
         return Matrix {
             shape: [arr.len(), arr[0].len()],
             arr,
         }
     }
+
     fn apply(&self, f: &dyn Fn(f32) -> f32) -> Self {
         let mut res = Matrix::new(&self.shape);
         for i in 0..self.shape[0] {
@@ -59,6 +65,7 @@ impl Matrix {
         let sum = self.sum();
         return sum / len;
     }
+
     fn sum(self) -> f32{
         let mut sum = 0.0;
         for i in 0..self.shape[0] {
@@ -68,7 +75,6 @@ impl Matrix {
         }
         return sum;
     }
-
 
     fn mul_const(&self, val: f32) -> Self {
         let mut res = Matrix::new(&self.shape);
@@ -80,8 +86,9 @@ impl Matrix {
 
         return res
     }
+
     fn matmul(&self, rhs: &Self) -> Self{
-        assert!(self.shape[1] == rhs.shape[0]);
+        assert!(self.shape[1] == rhs.shape[0], "[{},{}] | [{},{}]", self.shape[0], self.shape[1], rhs.shape[0], rhs.shape[1]);
         let mut res = Matrix::new(&[self.shape[0], rhs.shape[1]]);
         for i in 0..self.shape[0] {
             for j in 0..rhs.shape[1] {
@@ -93,7 +100,6 @@ impl Matrix {
         return res
     }
 
-
     fn mul(&self, rhs: &Self) -> Self {
         assert!(self.shape[0] == rhs.shape[0] && self.shape[1] == rhs.shape[1]);
         let mut res = Matrix::new(&self.shape);
@@ -102,11 +108,8 @@ impl Matrix {
                 res.arr[i][j] = self.arr[i][j] * rhs.arr[i][j];
             }
         }
-
         return res
-
     }
-
 
     fn add(&self, rhs: &Self) -> Self {
         assert!(self.shape[0] == rhs.shape[0] && self.shape[1] == rhs.shape[1]);
@@ -164,7 +167,7 @@ fn relu(num: f32) -> f32 {
 }
 fn relu_deriv(num: f32) -> f32 {
     if num > 0.0 {
-        return 0.0;
+        return 1.0;
     }
     return 0.0
 }
@@ -187,7 +190,8 @@ fn sigmoid(num: f32) -> f32 {
     return 1.0/ (1.0 + f32::exp(-num))
 }
 fn sigmoid_deriv(num: f32) -> f32 {
-    return sigmoid(num) * (1.0 - sigmoid(num))
+    let val = sigmoid(num) * (1.0 - sigmoid(num));
+    return val;
 }
 
 struct Sigmoid {}
@@ -232,9 +236,6 @@ trait LossFunction {
     fn derivative(&self) -> &dyn Fn(&Matrix, &Matrix) -> Matrix;
 }
 
-
-
-
 struct MSE {}
 
 impl LossFunction for MSE {
@@ -258,13 +259,12 @@ struct LinearLayer <L: Function> {
 impl<L: Function> LinearLayer<L> {
     fn new(in_size: usize, out_size: usize, activation: L) -> Self{
         return LinearLayer {
-            layer_w: Matrix::random(&[out_size, in_size]),
+            layer_w: Matrix::random(&[in_size, out_size]),
             layer_b: Matrix::random(&[out_size, 1]),
             activation_func: activation,
             layer_z: Matrix::new(&[out_size, 1]),
             layer_a: Matrix::new(&[out_size, 1]),
         }
-
     }
     fn forward(&mut self, X: &Matrix) -> Matrix {
         self.layer_z = self.layer_w.transpose().matmul(X).add(&self.layer_b);
@@ -274,15 +274,15 @@ impl<L: Function> LinearLayer<L> {
     fn backward(&self, a: &Matrix, error: &Matrix, w: &Matrix, last_layer: bool) -> (Matrix, Matrix, Matrix){
         if !last_layer {
             let deriv = self.layer_z.apply(self.activation_func.derivative());
-            let error_l = w.transpose().matmul(error).mul(&deriv);
-            let weight_update = error_l.matmul(&a.transpose());
+            let error_l = w.matmul(error).mul(&deriv);
+            let weight_update = error_l.matmul(&a.transpose()).transpose();
             let bias_update = error_l.clone();
             return (error_l, weight_update, bias_update.clone());
         }
         
         let deriv = self.layer_z.apply(self.activation_func.derivative());
         let error_l = error.mul(&deriv);
-        let weight_update = error_l.matmul(&a.transpose());
+        let weight_update = error_l.matmul(&a.transpose()).transpose();
 
         let bias_update = error_l.clone();
         return (error_l, weight_update, bias_update.clone());
@@ -296,22 +296,8 @@ fn main() {
         ]
     ).transpose();
 
-//    let mut layer = LinearLayer{
-//        layer_w: Matrix::random(&[3, 3]),
-//        layer_b: Matrix::random(&[1, 3]).transpose(),
-//        layer_z: Matrix::new(&[1, 3]).transpose(),
-//        activation_func: ReLU{},
-//    };
-//    let mut layer2 = LinearLayer{
-//        layer_w: Matrix::random(&[3, 3]),
-//        layer_b: Matrix::random(&[1, 3]).transpose(),
-//        layer_z: Matrix::new(&[1, 3]).transpose(),
-//        activation_func: Sigmoid{},
-//    };
-    //
-    let mut layer = LinearLayer::new(3, 3, ReLU{});
-    let mut layer2 = LinearLayer::new(3, 3, Sigmoid{});
-
+    let mut layer = LinearLayer::new(3, 20, ReLU{});
+    let mut layer2 = LinearLayer::new(20, 3, Sigmoid{});
 
     for i in 0..35 {
         let a1 = layer.forward(&matrix);
@@ -325,7 +311,7 @@ fn main() {
             ]
         ).transpose();
         let loss = mse.func()(&out, &target);
-        println!("Loss: {}", loss);
+        println!("LOSS: {}", loss);
 
         let error = mse.derivative()(&out, &target);
         let (error_back, weight_update, bias_update) = layer2.backward(&layer.layer_a, &error, &layer2.layer_w, true);
@@ -338,11 +324,5 @@ fn main() {
         layer.layer_w = layer.layer_w.sub(&weight_update2.mul_const(1.3));
         layer.layer_b = layer.layer_b.sub(&bias_update2.mul_const(1.3));
     }
-
-
-
-
-
-
 
 }
